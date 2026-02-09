@@ -3,27 +3,22 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>CQB Ops: Tactical Home Breach</title>
+    <title>CQB Ops: Custom House Infiltration</title>
     <style>
         body {
             margin: 0;
             overflow: hidden;
             background-color: #000;
-            font-family: 'Segoe UI', sans-serif;
+            font-family: 'Consolas', monospace;
         }
 
-        canvas {
-            display: block;
-        }
-
-        /* UI Elements */
         #crosshair {
             position: absolute;
             top: 50%;
             left: 50%;
-            width: 4px;
-            height: 4px;
-            border: 2px solid rgba(0, 255, 0, 0.5);
+            width: 10px;
+            height: 10px;
+            border: 1px solid rgba(0, 255, 0, 0.7);
             border-radius: 50%;
             transform: translate(-50%, -50%);
             pointer-events: none;
@@ -33,59 +28,8 @@
             position: absolute;
             bottom: 30px;
             left: 30px;
-            color: white;
+            color: #fff;
             text-shadow: 2px 2px 4px #000;
-            z-index: 5;
-        }
-
-        /* Night Vision Overlay */
-        #nvg-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 50, 0, 0.3);
-            pointer-events: none;
-            display: none;
-            z-index: 2;
-            box-shadow: inset 0 0 100px rgba(0, 0, 0, 1);
-        }
-
-        #nvg-noise {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: url('https://upload.wikimedia.org/wikipedia/commons/7/76/1k_Static_Noise_Grain.gif');
-            opacity: 0.15;
-            pointer-events: none;
-            display: none;
-            z-index: 3;
-        }
-
-        /* Flashbang Overlay */
-        #flash-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: white;
-            opacity: 0;
-            pointer-events: none;
-            z-index: 10;
-        }
-
-        #prompt {
-            position: absolute;
-            top: 65%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: #ffff00;
-            font-weight: bold;
-            display: none;
             z-index: 5;
         }
 
@@ -97,34 +41,43 @@
             color: white;
             text-align: center;
             background: rgba(0, 0, 0, 0.9);
-            padding: 30px;
-            border: 2px solid #333;
+            padding: 40px;
+            border: 1px solid #333;
             z-index: 20;
+        }
+
+        #loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            color: #0f0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            font-size: 24px;
         }
     </style>
 </head>
 
 <body>
 
-    <div id="nvg-overlay"></div>
-    <div id="nvg-noise"></div>
-    <div id="flash-overlay"></div>
+    <div id="loading-screen">MODERN WARFARE ASSETS LADEN...</div>
     <div id="crosshair"></div>
-    <div id="prompt">PRESS [E] TO BREACH</div>
 
-    <div id="instructions">
-        <h1>TACTICAL HOME BREACH</h1>
-        <p>Infiltreer het gebouw en schakel het doelwit uit.</p>
+    <div id="instructions" style="display:none;">
+        <h2 style="color: #00ff00;">HOUSE BREACH ACTIVE</h2>
+        <p>Gebruik je eigen .glb huis model</p>
         <p><b>KLIK OM TE STARTEN</b></p>
-        <small>WASD: Lopen | L-Muis: Vuren | E: Breach | N: Night Vision | G: Flashbang</small>
+        <small>WASD: Bewegen | Muis: Omkijken | L-Muis: Schieten</small>
     </div>
 
     <div id="ui">
-        <b>OPERATOR STATUS</b><br>
-        NVG: <span id="nvg-stat">OFF</span> | FLASHBANGS: <span id="fb-count">1</span>
-        <div style="width: 200px; height: 8px; background: rgba(255,0,0,0.2); border: 1px solid #fff; margin-top:5px;">
-            <div id="hp-bar" style="width: 100%; height: 100%; background: #ff3333;"></div>
-        </div>
+        <b>OPERATOR STATUS: ACTIVE</b><br>
+        POSITION: <span id="pos-display">0, 0, 0</span>
     </div>
 
     <script type="importmap">
@@ -139,10 +92,13 @@
     <script type="module">
         import * as THREE from 'three';
         import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-        // --- SETUP ---
+        // --- SCENE SETUP ---
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x050505, 0.1);
+        scene.background = new THREE.Color(0x020202);
+        scene.fog = new THREE.FogExp2(0x020202, 0.1);
+
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -150,199 +106,120 @@
         document.body.appendChild(renderer.domElement);
 
         const controls = new PointerLockControls(camera, document.body);
-        const instr = document.getElementById('instructions');
-        instr.addEventListener('click', () => controls.lock());
-        controls.addEventListener('lock', () => instr.style.display = 'none');
+        const instructions = document.getElementById('instructions');
 
-        // --- LIGHTS ---
-        const ambient = new THREE.AmbientLight(0x080808);
+        instructions.addEventListener('click', () => controls.lock());
+        controls.addEventListener('lock', () => instructions.style.display = 'none');
+        controls.addEventListener('unlock', () => instructions.style.display = 'block');
+
+        // --- LICHT ---
+        const ambient = new THREE.AmbientLight(0xffffff, 0.1);
         scene.add(ambient);
 
-        const flashlight = new THREE.SpotLight(0xffffff, 40, 25, Math.PI / 6, 0.4);
+        const flashlight = new THREE.SpotLight(0xffffff, 50, 30, Math.PI / 7, 0.3);
         flashlight.castShadow = true;
         camera.add(flashlight);
         flashlight.target.position.z = -1;
         camera.add(flashlight.target);
         scene.add(camera);
 
-        const muzzleFlash = new THREE.PointLight(0xffaa00, 0, 8);
-        camera.add(muzzleFlash);
+        // --- MODEL LOADING & COLLISION ---
+        const loader = new GLTFLoader();
+        const obstacles = []; // Hier komen de muren van je huis in
 
-        // --- ENVIRONMENT (REALISTIC HOUSE) ---
-        const obstacles = [];
-        const floorMat = new THREE.MeshStandardMaterial({ color: 0x3d2b1f, roughness: 0.8 }); // Hout-look
-        const wallMatPlaster = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.9 }); // Gestuct
-        const wallMatBrick = new THREE.MeshStandardMaterial({ color: 0x6e2626, roughness: 1 }); // Baksteen
-
-        function createWall(x, z, w, h, mat, ry = 0) {
-            const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.4), mat);
-            wall.position.set(x, h / 2, z); wall.rotation.y = ry;
-            wall.receiveShadow = wall.castShadow = true;
-            scene.add(wall);
-            obstacles.push(wall);
-        }
-
-        // Vloer
-        const floor = new THREE.Mesh(new THREE.PlaneGeometry(50, 50), floorMat);
-        floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
-        scene.add(floor);
-
-        // Huis Indeling
-        createWall(0, -10, 20, 4, wallMatPlaster); // Achtermuur
-        createWall(-10, 0, 20, 4, wallMatBrick, 1.57); // Buitenmuur links
-        createWall(0, 5, 20, 4, wallMatPlaster); // Tussenmuur
-        createWall(-4, -2, 12, 4, wallMatPlaster, 1.57); // Gangmuur
-
-        // De Deur
-        const doorPivot = new THREE.Group();
-        doorPivot.position.set(0, 0, 5);
-        scene.add(doorPivot);
-        const door = new THREE.Mesh(new THREE.BoxGeometry(2.5, 3.8, 0.15), new THREE.MeshStandardMaterial({ color: 0x221105 }));
-        door.position.x = 1.25; door.castShadow = true;
-        doorPivot.add(door);
-
-        // De Vijand
-        const enemy = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 1.2, 4, 8), new THREE.MeshStandardMaterial({ color: 0x222222 }));
-        enemy.position.set(4, 1.2, -4); enemy.castShadow = true;
-        scene.add(enemy);
-
-        // --- WEAPON ---
-        const gun = new THREE.Group();
-        const gBody = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.4), new THREE.MeshStandardMaterial({ color: 0x050505 }));
-        gun.add(gBody);
-        gun.position.set(0.3, -0.3, -0.5);
-        camera.add(gun);
-
-        // --- GAME STATES ---
-        let nvgActive = false;
-        let flashbangs = 1;
-        let health = 100;
-        let doorOpen = false;
-        let enemyAlive = true;
-
-        // --- ACTIONS ---
-        function toggleNVG() {
-            nvgActive = !nvgActive;
-            const overlay = document.getElementById('nvg-overlay');
-            const noise = document.getElementById('nvg-noise');
-            overlay.style.display = nvgActive ? 'block' : 'none';
-            noise.style.display = nvgActive ? 'block' : 'none';
-            flashlight.intensity = nvgActive ? 5 : 40;
-            scene.fog.color.setHex(nvgActive ? 0x003300 : 0x050505);
-            document.getElementById('nvg-stat').innerText = nvgActive ? "ON" : "OFF";
-        }
-
-        function throwFlashbang() {
-            if (flashbangs <= 0) return;
-            flashbangs--;
-            document.getElementById('fb-count').innerText = flashbangs;
-
-            // Simpel object dat naar voren vliegt
-            const fb = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.2), new THREE.MeshStandardMaterial({ color: 0x444444 }));
-            fb.position.copy(camera.position);
-            scene.add(fb);
-
-            const dir = new THREE.Vector3();
-            camera.getWorldDirection(dir);
-
-            let timer = 0;
-            const fbInterval = setInterval(() => {
-                fb.position.addScaledVector(dir, 0.2);
-                fb.position.y -= 0.05; // Gravity
-                timer += 0.05;
-                if (timer > 1.5) {
-                    explodeFlash(fb.position);
-                    scene.remove(fb);
-                    clearInterval(fbInterval);
+        loader.load('huis.glb', (gltf) => {
+            const model = gltf.scene;
+            model.traverse((node) => {
+                if (node.isMesh) {
+                    node.castShadow = true;
+                    node.receiveShadow = true;
+                    obstacles.push(node); // Voeg elk onderdeel van het huis toe aan de botsing-lijst
                 }
-            }, 50);
-        }
+            });
+            scene.add(model);
+            document.getElementById('loading-screen').style.display = 'none';
+            instructions.style.display = 'block';
+        },
+            (xhr) => { console.log((xhr.loaded / xhr.total * 100) + '% geladen'); },
+            (error) => {
+                console.error('Fout:', error);
+                document.getElementById('loading-screen').innerText = "FOUT: huis.glb niet gevonden!";
+            });
 
-        function explodeFlash(pos) {
-            const dist = camera.position.distanceTo(pos);
-            if (dist < 15) {
-                const flash = document.getElementById('flash-overlay');
-                flash.style.opacity = "1";
-                let fade = setInterval(() => {
-                    flash.style.opacity -= 0.01;
-                    if (flash.style.opacity <= 0) clearInterval(fade);
-                }, 50);
-            }
-            // Blind enemy
-            if (enemyAlive && pos.distanceTo(enemy.position) < 10) {
-                enemy.userData.blinded = true;
-                setTimeout(() => enemy.userData.blinded = false, 5000);
-            }
-        }
+        // --- BEWEGING LOGICA ---
+        const keys = { w: false, a: false, s: false, d: false };
+        document.addEventListener('keydown', (e) => keys[e.code.toLowerCase().replace('key', '')] = true);
+        document.addEventListener('keyup', (e) => keys[e.code.toLowerCase().replace('key', '')] = false);
 
-        function shoot() {
-            muzzleFlash.intensity = 50;
-            camera.rotation.x += 0.05;
-            setTimeout(() => muzzleFlash.intensity = 0, 50);
-
-            const ray = new THREE.Raycaster();
-            ray.setFromCamera({ x: 0, y: 0 }, camera);
-            const hitEnemy = ray.intersectObject(enemy);
-            if (hitEnemy.length > 0 && enemyAlive) {
-                enemyAlive = false;
-                enemy.rotation.z = Math.PI / 2;
-                enemy.position.y = 0.4;
-            }
-        }
-
-        // --- INPUTS ---
-        const keys = {};
-        window.addEventListener('keydown', (e) => {
-            keys[e.code] = true;
-            if (e.code === 'KeyN') toggleNVG();
-            if (e.code === 'KeyG') throwFlashbang();
-            if (e.code === 'KeyE' && camera.position.distanceTo(doorPivot.position) < 4) {
-                doorOpen = true;
-            }
-        });
-        window.addEventListener('keyup', (e) => keys[e.code] = false);
-        window.addEventListener('mousedown', () => { if (controls.isLocked) shoot(); });
-
-        // --- LOOP ---
         const velocity = new THREE.Vector3();
-        let lastTime = performance.now();
+        const direction = new THREE.Vector3();
+        let prevTime = performance.now();
+
+        // Raycaster voor botsingen (voor, achter, links, rechts)
+        const wallRaycaster = new THREE.Raycaster();
+
+        function checkCollision(nextPos, dirVector) {
+            // We schieten een straal vanaf de huidige positie in de richting waar we heen willen
+            wallRaycaster.set(camera.position, dirVector);
+            const intersections = wallRaycaster.intersectObjects(obstacles);
+
+            // Als er iets heel dichtbij is (0.8 meter), stop dan de beweging
+            if (intersections.length > 0 && intersections[0].distance < 0.8) {
+                return true;
+            }
+            return false;
+        }
 
         function animate() {
             requestAnimationFrame(animate);
-            const time = performance.now();
-            const delta = (time - lastTime) / 1000;
 
             if (controls.isLocked) {
-                // Movement
-                velocity.x -= velocity.x * 10 * delta; velocity.z -= velocity.z * 10 * delta;
-                if (keys.KeyW) velocity.z -= 40 * delta; if (keys.KeyS) velocity.z += 40 * delta;
-                if (keys.KeyA) velocity.x -= 40 * delta; if (keys.KeyD) velocity.x += 40 * delta;
-                controls.moveForward(-velocity.z * delta);
-                controls.moveRight(-velocity.x * delta);
+                const time = performance.now();
+                const delta = (time - prevTime) / 1000;
 
-                // Door anim
-                if (doorOpen && doorPivot.rotation.y > -Math.PI / 1.6) doorPivot.rotation.y -= 10 * delta;
+                velocity.x -= velocity.x * 10.0 * delta;
+                velocity.z -= velocity.z * 10.0 * delta;
 
-                // Prompt
-                document.getElementById('prompt').style.display = (camera.position.distanceTo(doorPivot.position) < 4 && !doorOpen) ? 'block' : 'none';
+                direction.z = Number(keys.w) - Number(keys.s);
+                direction.x = Number(keys.d) - Number(keys.a);
+                direction.normalize();
 
-                // Enemy logic
-                if (enemyAlive && doorOpen && !enemy.userData.blinded) {
-                    if (camera.position.distanceTo(enemy.position) < 12) {
-                        health -= 0.15;
-                        document.getElementById('hp-bar').style.width = health + "%";
+                // Bewegingsrichting bepalen op basis van waar je kijkt
+                const camDir = new THREE.Vector3();
+                camera.getWorldDirection(camDir);
+                camDir.y = 0; // Voorkom dat je de grond in vliegt of omhoog zweeft
+
+                if (keys.w || keys.s) {
+                    const moveDir = camDir.clone().multiplyScalar(direction.z);
+                    if (!checkCollision(camera.position, moveDir)) {
+                        velocity.z -= direction.z * 100.0 * delta;
+                    }
+                }
+                if (keys.a || keys.d) {
+                    // Bereken 'strafe' richting (haaks op camDir)
+                    const strafeDir = new THREE.Vector3().crossVectors(camDir, new THREE.Vector3(0, 1, 0)).normalize();
+                    const moveDir = strafeDir.clone().multiplyScalar(direction.x);
+                    if (!checkCollision(camera.position, moveDir)) {
+                        velocity.x -= direction.x * 100.0 * delta;
                     }
                 }
 
-                // Visuals
-                camera.rotation.x -= camera.rotation.x * 0.1; // Recoil recovery
-                if (keys.KeyW || keys.KeyS) camera.position.y = 1.6 + Math.sin(time * 0.01) * 0.02; // Bobbing
+                controls.moveRight(-velocity.x * delta);
+                controls.moveForward(-velocity.z * delta);
+
+                // Update UI
+                document.getElementById('pos-display').innerText =
+                    `${Math.round(camera.position.x)}, ${Math.round(camera.position.y)}, ${Math.round(camera.position.z)}`;
+
+                prevTime = time;
             }
-            lastTime = time;
+
             renderer.render(scene, camera);
         }
+
         animate();
 
+        // Resize handling
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
