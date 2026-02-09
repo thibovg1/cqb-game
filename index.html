@@ -3,22 +3,23 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>CQB Ops: Tactical 3D</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CQB Ops: Tactical 3D - Full Prototype</title>
     <style>
         body {
             margin: 0;
             overflow: hidden;
-            background-color: #000;
-            font-family: sans-serif;
+            background-color: #050505;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
         #crosshair {
             position: absolute;
             top: 50%;
             left: 50%;
-            width: 10px;
-            height: 10px;
-            border: 2px solid rgba(255, 255, 255, 0.5);
+            width: 8px;
+            height: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.8);
             border-radius: 50%;
             transform: translate(-50%, -50%);
             pointer-events: none;
@@ -26,10 +27,38 @@
 
         #ui {
             position: absolute;
-            bottom: 20px;
-            left: 20px;
+            bottom: 30px;
+            left: 30px;
             color: white;
-            text-shadow: 2px 2px 4px #000;
+            text-shadow: 2px 2px 5px #000;
+            letter-spacing: 1px;
+        }
+
+        #health-bar {
+            width: 200px;
+            height: 10px;
+            background: rgba(255, 0, 0, 0.3);
+            border: 1px solid white;
+            margin-top: 5px;
+        }
+
+        #health-fill {
+            width: 100%;
+            height: 100%;
+            background: #ff3333;
+            transition: width 0.2s;
+        }
+
+        #instructions {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border: 1px solid #444;
         }
     </style>
 </head>
@@ -37,9 +66,19 @@
 <body>
 
     <div id="crosshair"></div>
+    <div id="instructions">
+        <h1>BREACH & CLEAR</h1>
+        <p>Tactical Web Operation</p>
+        <p><b>KLIK OM TE STARTEN</b></p>
+        <small>WASD: Bewegen | Muis: Mikken | Linkermuis: Vuren</small>
+    </div>
+
     <div id="ui">
-        <b>BREACH & CLEAR 3D</b><br>
-        Klik om te starten | WASD: Bewegen | Muis: Omkijken
+        <b>OPERATOR STATUS</b>
+        <div id="health-bar">
+            <div id="health-fill"></div>
+        </div>
+        <small id="status-text">AREA: UNSECURED</small>
     </div>
 
     <script type="importmap">
@@ -55,127 +94,177 @@
         import * as THREE from 'three';
         import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 
-        // 1. SCENE & CAMERA
+        // --- 1. CORE SETUP ---
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x000000, 0.1); // Realistische diepte/mist
+        scene.fog = new THREE.FogExp2(0x0a0a0a, 0.12);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.shadowMap.enabled = true; // Cruciaal voor realisme
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.body.appendChild(renderer.domElement);
 
-        // 2. CONTROLS
         const controls = new PointerLockControls(camera, document.body);
-        document.body.addEventListener('click', () => controls.lock());
+        const instructions = document.getElementById('instructions');
 
-        // 3. LICHT (De sleutel tot realisme)
-        const ambientLight = new THREE.AmbientLight(0x404040, 0.5); // Zacht basislicht
-        scene.add(ambientLight);
+        instructions.addEventListener('click', () => controls.lock());
+        controls.addEventListener('lock', () => instructions.style.display = 'none');
+        controls.addEventListener('unlock', () => instructions.style.display = 'block');
 
-        const flashLight = new THREE.SpotLight(0xffffff, 50); // Zaklamp effect
-        flashLight.angle = Math.PI / 6;
-        flashLight.penumbra = 0.3;
-        flashLight.castShadow = true;
-        camera.add(flashLight);
-        flashLight.target = new THREE.Object3D();
-        camera.add(flashLight.target);
-        flashLight.target.position.z = -1;
+        // --- 2. TACTICAL LIGHTING ---
+        const ambient = new THREE.AmbientLight(0x111111); // Bijna pikdonker
+        scene.add(ambient);
+
+        const flashlight = new THREE.SpotLight(0xffffff, 40);
+        flashlight.angle = Math.PI / 7;
+        flashlight.penumbra = 0.4;
+        flashlight.decay = 2;
+        flashlight.distance = 25;
+        flashlight.castShadow = true;
+        camera.add(flashlight);
+        flashlight.target.position.z = -1;
+        camera.add(flashlight.target);
         scene.add(camera);
 
-        // 4. DE OMGEVING (Industriële Killhouse)
-        const loader = new THREE.TextureLoader();
+        const muzzleFlash = new THREE.PointLight(0xffaa44, 0, 5);
+        camera.add(muzzleFlash);
+        muzzleFlash.position.set(0.3, -0.2, -0.8);
 
-        // Vloer (Beton)
-        const floorGeo = new THREE.PlaneGeometry(50, 50);
-        const floorMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8, metalness: 0.2 });
-        const floor = new THREE.Mesh(floorGeo, floorMat);
-        floor.rotation.x = -Math.PI / 2;
-        floor.receiveShadow = true;
-        scene.add(floor);
+        // --- 3. THE WEAPON (Sub-assembly) ---
+        const gun = new THREE.Group();
+        const matBlack = new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.5 });
 
-        // Muren bouwen
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.4), matBlack);
+        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.3), matBlack);
+        barrel.rotation.x = Math.PI / 2; barrel.position.z = -0.3;
+
+        gun.add(body, barrel);
+        gun.position.set(0.25, -0.25, -0.4);
+        camera.add(gun);
+
+        // --- 4. ENVIRONMENT ---
+        const wallMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
+        const obstacles = [];
+
         function createWall(x, z, w, h, rotY = 0) {
-            const wallGeo = new THREE.BoxGeometry(w, h, 0.5);
-            const wallMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.9 });
-            const wall = new THREE.Mesh(wallGeo, wallMat);
+            const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.5), wallMat);
             wall.position.set(x, h / 2, z);
             wall.rotation.y = rotY;
-            wall.castShadow = true;
-            wall.receiveShadow = true;
+            wall.receiveShadow = wall.castShadow = true;
             scene.add(wall);
+            obstacles.push(wall);
         }
 
-        createWall(0, -10, 20, 4); // Achtermuur
-        createWall(-10, 0, 20, 4, Math.PI / 2); // Linkermuur
-        createWall(5, -5, 10, 4, Math.PI / 2); // Tussenmuur voor tactiek
+        // De Killhouse layout
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({ color: 0x0a0a0a }));
+        floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
+        scene.add(floor);
 
-        // 5. BEWEGING LOGICA
-        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        createWall(0, -10, 20, 4);      // Achterwand
+        createWall(-10, 0, 20, 4, 1.57); // Linkerwand
+        createWall(10, 0, 20, 4, 1.57);  // Rechterwand
+        createWall(3, -4, 8, 4, 1.57);   // Tactical corner
+
+        // --- 5. ENEMY AI ---
+        const enemyMat = new THREE.MeshStandardMaterial({ color: 0x441111 });
+        const enemy = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 1, 4, 8), enemyMat);
+        enemy.position.set(7, 1.2, -8);
+        enemy.castShadow = true;
+        scene.add(enemy);
+
+        let enemyAlive = true;
+
+        // --- 6. SHOOTING & COMBAT ---
+        const raycaster = new THREE.Raycaster();
+        let health = 100;
+
+        function shoot() {
+            // Muzzle flash & recoil
+            muzzleFlash.intensity = 30;
+            camera.rotation.x += 0.04;
+            setTimeout(() => muzzleFlash.intensity = 0, 40);
+
+            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+
+            // Hit enemy?
+            if (enemyAlive) {
+                const enemyHit = raycaster.intersectObject(enemy);
+                if (enemyHit.length > 0) {
+                    enemyAlive = false;
+                    enemy.rotation.z = Math.PI / 2; // "Death" animation
+                    enemy.position.y = 0.3;
+                    document.getElementById('status-text').innerText = "AREA: SECURED";
+                    document.getElementById('status-text').style.color = "#00ff00";
+                    return;
+                }
+            }
+
+            // Hit walls?
+            const hits = raycaster.intersectObjects(obstacles);
+            if (hits.length > 0) {
+                const dot = new THREE.Mesh(new THREE.CircleGeometry(0.02, 8), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+                dot.position.copy(hits[0].point).add(hits[0].face.normal.multiplyScalar(0.01));
+                dot.lookAt(hits[0].point.clone().add(hits[0].face.normal));
+                scene.add(dot);
+            }
+        }
+
+        window.addEventListener('mousedown', (e) => {
+            if (controls.isLocked && e.button === 0) shoot();
+        });
+
+        // --- 7. GAME LOOP ---
+        let moveF = false, moveB = false, moveL = false, moveR = false;
+        document.addEventListener('keydown', (e) => { if (e.code === 'KeyW') moveF = true; if (e.code === 'KeyS') moveB = true; if (e.code === 'KeyA') moveL = true; if (e.code === 'KeyD') moveR = true; });
+        document.addEventListener('keyup', (e) => { if (e.code === 'KeyW') moveF = false; if (e.code === 'KeyS') moveB = false; if (e.code === 'KeyA') moveL = false; if (e.code === 'KeyD') moveR = false; });
+
         const velocity = new THREE.Vector3();
-        const direction = new THREE.Vector3();
-
-        const onKeyDown = (event) => {
-            switch (event.code) {
-                case 'KeyW': moveForward = true; break;
-                case 'KeyA': moveLeft = true; break;
-                case 'KeyS': moveBackward = true; break;
-                case 'KeyD': moveRight = true; break;
-            }
-        };
-        const onKeyUp = (event) => {
-            switch (event.code) {
-                case 'KeyW': moveForward = false; break;
-                case 'KeyA': moveLeft = false; break;
-                case 'KeyS': moveBackward = false; break;
-                case 'KeyD': moveRight = false; break;
-            }
-        };
-        document.addEventListener('keydown', onKeyDown);
-        document.addEventListener('keyup', onKeyUp);
-
-        // 6. ANIMATIE LOOP
         let prevTime = performance.now();
+
         function animate() {
             requestAnimationFrame(animate);
-
             if (controls.isLocked) {
                 const time = performance.now();
                 const delta = (time - prevTime) / 1000;
 
-                velocity.x -= velocity.x * 10.0 * delta;
                 velocity.z -= velocity.z * 10.0 * delta;
+                velocity.x -= velocity.x * 10.0 * delta;
 
-                direction.z = Number(moveForward) - Number(moveBackward);
-                direction.x = Number(moveRight) - Number(moveLeft);
-                direction.normalize();
+                if (moveF) velocity.z -= 45.0 * delta;
+                if (moveB) velocity.z += 45.0 * delta;
+                if (moveL) velocity.x -= 45.0 * delta;
+                if (moveR) velocity.x += 45.0 * delta;
 
-                if (moveForward || moveBackward) velocity.z -= direction.z * 100.0 * delta;
-                if (moveLeft || moveRight) velocity.x -= direction.x * 100.0 * delta;
-
-                controls.moveRight(-velocity.x * delta);
                 controls.moveForward(-velocity.z * delta);
+                controls.moveRight(-velocity.x * delta);
 
-                // 'Head bob' effect voor realisme
-                if (moveForward || moveBackward || moveLeft || moveRight) {
-                    camera.position.y = 1.6 + Math.sin(time * 0.01) * 0.02;
+                // Recoil recovery & Head bob
+                camera.rotation.x -= (camera.rotation.x * 0.1);
+                if (moveF || moveB || moveL || moveR) {
+                    camera.position.y = 1.6 + Math.sin(time * 0.008) * 0.02;
+                    gun.position.y = -0.25 + Math.sin(time * 0.008) * 0.01;
+                }
+
+                // Simpele Enemy AI "aanval"
+                if (enemyAlive && camera.position.distanceTo(enemy.position) < 8) {
+                    health -= 0.1; // Schade per frame
+                    document.getElementById('health-fill').style.width = health + "%";
                 }
 
                 prevTime = time;
             }
-
             renderer.render(scene, camera);
         }
 
-        animate();
-
-        // Resize handling
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
+
+        animate();
     </script>
 </body>
 
