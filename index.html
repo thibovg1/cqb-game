@@ -4,7 +4,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>CQB Ops: Tactical 3D Infiltration</title>
+    <title>CQB Ops: Fixed Spawn</title>
     <style>
         body {
             margin: 0;
@@ -19,7 +19,7 @@
             left: 50%;
             width: 10px;
             height: 10px;
-            border: 1px solid rgba(255, 0, 0, 0.7);
+            border: 1px solid #ff0000;
             border-radius: 50%;
             transform: translate(-50%, -50%);
             pointer-events: none;
@@ -32,7 +32,6 @@
             color: #0f0;
             text-shadow: 2px 2px 4px #000;
             z-index: 5;
-            font-size: 12px;
         }
 
         #instructions {
@@ -42,45 +41,28 @@
             transform: translate(-50%, -50%);
             color: white;
             text-align: center;
-            background: rgba(0, 0, 0, 0.9);
+            background: rgba(0, 0, 0, 0.95);
             padding: 40px;
             border: 1px solid #333;
             z-index: 20;
-        }
-
-        #loading-screen {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: #000;
-            color: #0f0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 100;
-            font-size: 20px;
         }
     </style>
 </head>
 
 <body>
 
-    <div id="loading-screen">BREACH PROTOCOL INITIALIZING...</div>
     <div id="crosshair"></div>
-
-    <div id="instructions" style="display:none;">
-        <h2 style="color: #ff0000;">ENEMIES DETECTED IN BUILDING</h2>
-        <p>Zuiver alle kamers van vijandelijk contact.</p>
-        <p><b>KLIK OM DE MISSIE TE STARTEN</b></p>
-        <small>WASD: Bewegen | L-MUIS: Vuren | POSITIES GELADEN UIT GLB</small>
+    <div id="instructions">
+        <h2 style="color: #00ff00;">TACTICAL ENTRY</h2>
+        <p>Als je vastzit in een muur: pas PLAYER_SPAWN aan in de code.</p>
+        <p><b>KLIK OM TE STARTEN</b></p>
+        <small>WASD: Move | Muis: Shoot</small>
     </div>
 
     <div id="ui">
-        [OPERATOR LOGS]<br>
-        POSITION: <span id="pos-display">0, 0, 0</span><br>
-        ENEMIES: <span id="enemy-count">0</span>
+        [SYSTEM STATUS: ONLINE]<br>
+        CURRENT POS: <span id="pos-display">0, 0, 0</span><br>
+        ENEMY CONTACTS: <span id="enemy-count">0</span>
     </div>
 
     <script type="importmap">
@@ -97,22 +79,25 @@
         import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-        // --- 1. SETTINGS & LOCATIES ---
-        // PAS DEZE COÖRDINATEN AAN OP BASIS VAN JOUW HUIS MODEL
-        const PLAYER_SPAWN = { x: 0, y: 1.6, z: 10 }; // Jouw startpositie (bijv. buiten voor de deur)
+        // ==========================================
+        // STAP 1: PAS HIER JE SPAWN AAN
+        // ==========================================
+        // Als je in het donker spawnt, zet Z op 20 of -20 om "buiten" te beginnen.
+        const PLAYER_SPAWN = { x: 0, y: 1.8, z: 15 };
 
         const ENEMY_SPAWN_POINTS = [
-            { x: 5, y: 1, z: -5 },   // Kamer 1
-            { x: -7, y: 1, z: -12 }, // Kamer 2
-            { x: 3, y: 1, z: -15 },  // Gang
-            { x: -4, y: 1, z: 2 }    // Keuken
+            { x: 2, y: 1, z: -5 },
+            { x: -5, y: 1, z: -8 }
         ];
 
-        // --- 2. SCENE SETUP ---
+        // ==========================================
+        // SCENE & ENGINE
+        // ==========================================
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x050505, 0.1);
+        scene.background = new THREE.Color(0x050505);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        // We zetten de camera DIRECT op de spawn positie
         camera.position.set(PLAYER_SPAWN.x, PLAYER_SPAWN.y, PLAYER_SPAWN.z);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -121,88 +106,65 @@
         document.body.appendChild(renderer.domElement);
 
         const controls = new PointerLockControls(camera, document.body);
-        const instr = document.getElementById('instructions');
-        instr.addEventListener('click', () => controls.lock());
-        controls.addEventListener('lock', () => instr.style.display = 'none');
-        controls.addEventListener('unlock', () => instr.style.display = 'block');
+        document.body.addEventListener('click', () => controls.lock());
 
-        const flashlight = new THREE.SpotLight(0xffffff, 60, 40, Math.PI / 7, 0.4);
+        // Verlichting (Essentieel om je huis te zien!)
+        const ambient = new THREE.AmbientLight(0xffffff, 0.2);
+        scene.add(ambient);
+
+        const flashlight = new THREE.SpotLight(0xffffff, 80, 50, Math.PI / 6, 0.5);
         flashlight.castShadow = true;
         camera.add(flashlight);
         flashlight.target.position.z = -1;
         camera.add(flashlight.target);
         scene.add(camera);
 
-        // --- 3. LOADING & ENEMIES ---
+        // ==========================================
+        // ASSETS LADEN
+        // ==========================================
         const obstacles = [];
         const enemies = [];
         const loader = new GLTFLoader();
 
         loader.load('huis.glb', (gltf) => {
             const model = gltf.scene;
+            scene.add(model);
+
             model.traverse((node) => {
                 if (node.isMesh) {
-                    node.receiveShadow = node.castShadow = true;
+                    node.receiveShadow = true;
+                    node.castShadow = true;
                     obstacles.push(node);
                 }
             });
-            scene.add(model);
-            spawnEnemies(); // Roep de vijanden op nadat het huis geladen is
-            document.getElementById('loading-screen').style.display = 'none';
-            instr.style.display = 'block';
+            spawnEnemies();
+            console.log("Huis geladen op positie:", model.position);
+        }, undefined, (err) => {
+            console.error("Kan huis.glb niet vinden. Zorg dat het in dezelfde map staat!");
         });
 
         function spawnEnemies() {
-            const enemyMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.5 });
-            const enemyGeo = new THREE.CapsuleGeometry(0.35, 1.2, 4, 8);
-
-            ENEMY_SPAWN_POINTS.forEach((pos) => {
-                // We voegen een beetje willekeur toe aan de spawn positie
-                const mesh = new THREE.Mesh(enemyGeo, enemyMat);
-                mesh.position.set(
-                    pos.x + (Math.random() - 0.5) * 2,
-                    pos.y,
-                    pos.z + (Math.random() - 0.5) * 2
-                );
-                mesh.castShadow = true;
-                mesh.userData = { alive: true };
-                scene.add(mesh);
-                enemies.push(mesh);
+            const enemyGeo = new THREE.CapsuleGeometry(0.4, 1, 4, 8);
+            const enemyMat = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+            ENEMY_SPAWN_POINTS.forEach(pos => {
+                const e = new THREE.Mesh(enemyGeo, enemyMat);
+                e.position.set(pos.x, pos.y, pos.z);
+                e.userData = { alive: true };
+                scene.add(e);
+                enemies.push(e);
             });
             document.getElementById('enemy-count').innerText = enemies.length;
         }
 
-        // --- 4. COMBAT & COLLISION ---
+        // ==========================================
+        // GAME LOGICA & MOVEMENT
+        // ==========================================
+        const keys = {};
+        window.addEventListener('keydown', (e) => keys[e.code] = true);
+        window.addEventListener('keyup', (e) => keys[e.code] = false);
+
         const raycaster = new THREE.Raycaster();
-
-        function shoot() {
-            camera.rotation.x += 0.05; // Recoil
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
-
-            const hits = raycaster.intersectObjects(enemies);
-            if (hits.length > 0) {
-                const target = hits[0].object;
-                if (target.userData.alive) {
-                    target.userData.alive = false;
-                    target.rotation.z = Math.PI / 2; // Valt om
-                    target.position.y = 0.4;
-                    updateEnemyCount();
-                }
-            }
-        }
-
-        function updateEnemyCount() {
-            const alive = enemies.filter(e => e.userData.alive).length;
-            document.getElementById('enemy-count').innerText = alive;
-        }
-
-        // --- 5. MOVEMENT LOOP ---
-        const keys = { w: false, a: false, s: false, d: false };
-        window.addEventListener('keydown', (e) => keys[e.code.toLowerCase().replace('key', '')] = true);
-        window.addEventListener('keyup', (e) => keys[e.code.toLowerCase().replace('key', '')] = false);
-        window.addEventListener('mousedown', () => { if (controls.isLocked) shoot(); });
-
-        const vel = new THREE.Vector3();
+        const velocity = new THREE.Vector3();
         let prevTime = performance.now();
 
         function animate() {
@@ -211,28 +173,41 @@
                 const time = performance.now();
                 const delta = (time - prevTime) / 1000;
 
-                vel.x -= vel.x * 10 * delta;
-                vel.z -= vel.z * 10 * delta;
+                velocity.x -= velocity.x * 10.0 * delta;
+                velocity.z -= velocity.z * 10.0 * delta;
 
-                const dirZ = Number(keys.w) - Number(keys.s);
-                const dirX = Number(keys.d) - Number(keys.a);
+                if (keys['KeyW']) velocity.z -= 100.0 * delta;
+                if (keys['KeyS']) velocity.z += 100.0 * delta;
+                if (keys['KeyA']) velocity.x -= 100.0 * delta;
+                if (keys['KeyD']) velocity.x += 100.0 * delta;
 
-                if (dirZ !== 0) vel.z -= dirZ * 100 * delta;
-                if (dirX !== 0) vel.x -= dirX * 100 * delta;
+                controls.moveRight(-velocity.x * delta);
+                controls.moveForward(-velocity.z * delta);
 
-                controls.moveRight(-vel.x * delta);
-                controls.moveForward(-vel.z * delta);
-
-                // UI feedback
+                // Update UI Positie
                 document.getElementById('pos-display').innerText =
-                    `${Math.round(camera.position.x)}, ${Math.round(camera.position.z)}`;
+                    `X: ${camera.position.x.toFixed(1)}, Z: ${camera.position.z.toFixed(1)}`;
 
-                camera.rotation.x -= camera.rotation.x * 0.1; // Recoil herstel
                 prevTime = time;
             }
             renderer.render(scene, camera);
         }
         animate();
+
+        // Schieten
+        window.addEventListener('mousedown', () => {
+            if (!controls.isLocked) return;
+            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            const hits = raycaster.intersectObjects(enemies);
+            if (hits.length > 0) {
+                const target = hits[0].object;
+                target.rotation.z = Math.PI / 2;
+                target.position.y = 0.2;
+                target.userData.alive = false;
+                const aliveCount = enemies.filter(e => e.userData.alive).length;
+                document.getElementById('enemy-count').innerText = aliveCount;
+            }
+        });
 
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
