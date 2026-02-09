@@ -1,10 +1,9 @@
--
 <!DOCTYPE html>
 <html lang="nl">
 
 <head>
     <meta charset="UTF-8">
-    <title>CQB Ops: Fixed Spawn</title>
+    <title>MLO Tactical: Breach & Clear</title>
     <style>
         body {
             margin: 0;
@@ -27,42 +26,52 @@
 
         #ui {
             position: absolute;
-            bottom: 30px;
-            left: 30px;
+            bottom: 20px;
+            left: 20px;
             color: #0f0;
-            text-shadow: 2px 2px 4px #000;
-            z-index: 5;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border: 1px solid #0f0;
         }
 
-        #instructions {
+        #prompt {
             position: absolute;
-            top: 50%;
+            top: 55%;
             left: 50%;
             transform: translate(-50%, -50%);
-            color: white;
+            color: #fff;
             text-align: center;
-            background: rgba(0, 0, 0, 0.95);
-            padding: 40px;
-            border: 1px solid #333;
-            z-index: 20;
+            text-shadow: 2px 2px #000;
+            display: none;
+        }
+
+        #flash {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: white;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 10;
         }
     </style>
 </head>
 
 <body>
 
+    <div id="flash"></div>
     <div id="crosshair"></div>
-    <div id="instructions">
-        <h2 style="color: #00ff00;">TACTICAL ENTRY</h2>
-        <p>Als je vastzit in een muur: pas PLAYER_SPAWN aan in de code.</p>
-        <p><b>KLIK OM TE STARTEN</b></p>
-        <small>WASD: Move | Muis: Shoot</small>
+    <div id="prompt">
+        <span style="font-size: 20px; color: #0f0;">[E] OPENEN</span><br>
+        <span style="font-size: 14px; color: #f00;">[SHIFT + E] BREACH</span>
     </div>
 
     <div id="ui">
-        [SYSTEM STATUS: ONLINE]<br>
-        CURRENT POS: <span id="pos-display">0, 0, 0</span><br>
-        ENEMY CONTACTS: <span id="enemy-count">0</span>
+        <b>[TACTICAL BREACH SYSTEM]</b><br>
+        DOOR STATE: <span id="door-state">SECURE</span><br>
+        VELOCITY: <span id="speed">0</span>
     </div>
 
     <script type="importmap">
@@ -79,27 +88,9 @@
         import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-        // ==========================================
-        // STAP 1: PAS HIER JE SPAWN AAN
-        // ==========================================
-        // Als je in het donker spawnt, zet Z op 20 of -20 om "buiten" te beginnen.
-        const PLAYER_SPAWN = { x: 0, y: 1.8, z: 15 };
-
-        const ENEMY_SPAWN_POINTS = [
-            { x: 2, y: 1, z: -5 },
-            { x: -5, y: 1, z: -8 }
-        ];
-
-        // ==========================================
-        // SCENE & ENGINE
-        // ==========================================
+        // --- SETUP ---
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x050505);
-
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        // We zetten de camera DIRECT op de spawn positie
-        camera.position.set(PLAYER_SPAWN.x, PLAYER_SPAWN.y, PLAYER_SPAWN.z);
-
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.shadowMap.enabled = true;
@@ -108,112 +99,122 @@
         const controls = new PointerLockControls(camera, document.body);
         document.body.addEventListener('click', () => controls.lock());
 
-        // Verlichting (Essentieel om je huis te zien!)
-        const ambient = new THREE.AmbientLight(0xffffff, 0.2);
-        scene.add(ambient);
-
-        const flashlight = new THREE.SpotLight(0xffffff, 80, 50, Math.PI / 6, 0.5);
-        flashlight.castShadow = true;
+        scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+        const flashlight = new THREE.SpotLight(0xffffff, 50, 30, Math.PI / 7, 0.4);
         camera.add(flashlight);
         flashlight.target.position.z = -1;
         camera.add(flashlight.target);
         scene.add(camera);
 
-        // ==========================================
-        // ASSETS LADEN
-        // ==========================================
-        const obstacles = [];
-        const enemies = [];
+        // --- DEUR LOGICA ---
+        const doors = [];
         const loader = new GLTFLoader();
 
         loader.load('huis.glb', (gltf) => {
-            const model = gltf.scene;
-            scene.add(model);
+            const mlo = gltf.scene;
+            scene.add(mlo);
+            mlo.traverse(child => {
+                if (child.isMesh && child.name.toLowerCase().includes('door')) {
+                    const pivot = new THREE.Group();
+                    pivot.position.copy(child.position);
+                    child.position.set(0.6, 0, 0); // Offset voor scharnier aan zijkant
+                    pivot.add(child);
 
-            model.traverse((node) => {
-                if (node.isMesh) {
-                    node.receiveShadow = true;
-                    node.castShadow = true;
-                    obstacles.push(node);
+                    const doorData = {
+                        pivot: pivot,
+                        isOpen: false,
+                        targetRot: 0,
+                        isBreached: false,
+                        lerpSpeed: 0.1 // Normale snelheid
+                    };
+                    doors.push(doorData);
+                    scene.add(pivot);
                 }
             });
-            spawnEnemies();
-            console.log("Huis geladen op positie:", model.position);
-        }, undefined, (err) => {
-            console.error("Kan huis.glb niet vinden. Zorg dat het in dezelfde map staat!");
+            camera.position.set(0, 1.6, 5);
         });
 
-        function spawnEnemies() {
-            const enemyGeo = new THREE.CapsuleGeometry(0.4, 1, 4, 8);
-            const enemyMat = new THREE.MeshStandardMaterial({ color: 0xff0000 });
-            ENEMY_SPAWN_POINTS.forEach(pos => {
-                const e = new THREE.Mesh(enemyGeo, enemyMat);
-                e.position.set(pos.x, pos.y, pos.z);
-                e.userData = { alive: true };
-                scene.add(e);
-                enemies.push(e);
-            });
-            document.getElementById('enemy-count').innerText = enemies.length;
-        }
-
-        // ==========================================
-        // GAME LOGICA & MOVEMENT
-        // ==========================================
+        // --- INTERACTIE ---
+        const raycaster = new THREE.Raycaster();
         const keys = {};
-        window.addEventListener('keydown', (e) => keys[e.code] = true);
+        window.addEventListener('keydown', (e) => {
+            keys[e.code] = true;
+            if (e.code === 'KeyE') handleDoorInteraction();
+        });
         window.addEventListener('keyup', (e) => keys[e.code] = false);
 
-        const raycaster = new THREE.Raycaster();
-        const velocity = new THREE.Vector3();
-        let prevTime = performance.now();
+        function handleDoorInteraction() {
+            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            const doorObjects = doors.map(d => d.pivot);
+            const intersects = raycaster.intersectObjects(doorObjects, true);
 
+            if (intersects.length > 0 && intersects[0].distance < 3) {
+                // Vind de juiste deur in onze array
+                const hitPivot = intersects[0].object.parent;
+                const doorData = doors.find(d => d.pivot === hitPivot);
+
+                if (doorData) {
+                    if (keys['ShiftLeft'] || keys['ShiftRight']) {
+                        // BREACH
+                        doorData.isOpen = true;
+                        doorData.targetRot = -Math.PI / 1.2; // Extra ver open
+                        doorData.lerpSpeed = 0.25; // Super snel
+                        screenShake();
+                        document.getElementById('door-state').innerText = "BREACHED";
+                        document.getElementById('door-state').style.color = "red";
+                    } else {
+                        // NORMALE INTERACTIE
+                        doorData.isOpen = !doorData.isOpen;
+                        doorData.targetRot = doorData.isOpen ? -Math.PI / 1.7 : 0;
+                        doorData.lerpSpeed = 0.08;
+                        document.getElementById('door-state').innerText = doorData.isOpen ? "OPEN" : "SECURE";
+                        document.getElementById('door-state').style.color = "#0f0";
+                    }
+                }
+            }
+        }
+
+        function screenShake() {
+            const flash = document.getElementById('flash');
+            flash.style.opacity = "0.5";
+            setTimeout(() => flash.style.opacity = "0", 100);
+            // Camera effect
+            camera.position.y += 0.1;
+            setTimeout(() => camera.position.y -= 0.1, 50);
+        }
+
+        // --- MAIN LOOP ---
+        let prevTime = performance.now();
         function animate() {
             requestAnimationFrame(animate);
+            const time = performance.now();
+            const delta = (time - prevTime) / 1000;
+
             if (controls.isLocked) {
-                const time = performance.now();
-                const delta = (time - prevTime) / 1000;
+                // Deur animaties
+                doors.forEach(d => {
+                    d.pivot.rotation.y = THREE.MathUtils.lerp(d.pivot.rotation.y, d.targetRot, d.lerpSpeed);
+                });
 
-                velocity.x -= velocity.x * 10.0 * delta;
-                velocity.z -= velocity.z * 10.0 * delta;
+                // UI Prompt
+                raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+                const doorObjects = doors.map(d => d.pivot);
+                const intersects = raycaster.intersectObjects(doorObjects, true);
+                document.getElementById('prompt').style.display = (intersects.length > 0 && intersects[0].distance < 3) ? 'block' : 'none';
 
-                if (keys['KeyW']) velocity.z -= 100.0 * delta;
-                if (keys['KeyS']) velocity.z += 100.0 * delta;
-                if (keys['KeyA']) velocity.x -= 100.0 * delta;
-                if (keys['KeyD']) velocity.x += 100.0 * delta;
+                // Basic Movement
+                const speed = (keys['ShiftLeft'] ? 8 : 4);
+                if (keys['KeyW']) controls.moveForward(speed * delta);
+                if (keys['KeyS']) controls.moveForward(-speed * delta);
+                if (keys['KeyA']) controls.moveRight(-speed * delta);
+                if (keys['KeyD']) controls.moveRight(speed * delta);
 
-                controls.moveRight(-velocity.x * delta);
-                controls.moveForward(-velocity.z * delta);
-
-                // Update UI Positie
-                document.getElementById('pos-display').innerText =
-                    `X: ${camera.position.x.toFixed(1)}, Z: ${camera.position.z.toFixed(1)}`;
-
-                prevTime = time;
+                document.getElementById('speed').innerText = speed;
             }
+            prevTime = time;
             renderer.render(scene, camera);
         }
         animate();
-
-        // Schieten
-        window.addEventListener('mousedown', () => {
-            if (!controls.isLocked) return;
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
-            const hits = raycaster.intersectObjects(enemies);
-            if (hits.length > 0) {
-                const target = hits[0].object;
-                target.rotation.z = Math.PI / 2;
-                target.position.y = 0.2;
-                target.userData.alive = false;
-                const aliveCount = enemies.filter(e => e.userData.alive).length;
-                document.getElementById('enemy-count').innerText = aliveCount;
-            }
-        });
-
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
     </script>
 </body>
 
